@@ -1,0 +1,699 @@
+---
+title: 'Encuesta Nacional de Presupuestos de los Hogares: BOGOTÁ'
+author: "Jean Marco Varón & Natgalia Jaramillo"
+date: "21/2/2021"
+output: html_document
+---
+# Actividades de preparación de los datos {.tabset .tabset-fade}
+## Carga de librerías y funciones
+Se procede a cargar las librerías y funciones diseñadas por el profesor Diego
+```{r librerias,message=FALSE,warning=FALSE}
+library(readxl)
+library(reshape2)
+library(dplyr)
+library(e1071)
+library(Hmisc)
+library(inspectdf) #este no lo tienen
+library(funModeling) #este no lo tienen
+library(VIM) #este no lo tienen
+library(stringr)
+library(xtable) #este no lo tienen
+library(ggplot2)
+library(directlabels)
+library(scales)
+library(ggthemes)
+library(mice)
+library(kableExtra)
+library(reader)
+
+
+descriptivas<- function(x){data.frame("MEDIDA"=c("Observaciones", "Mínimo", "1er Q", "Media", "Mediana", "Desv Est", "3er Q", "Máximo", "Asimetría", "Curtosis", "atípico leve<", "atípico leve>","atípico extremo<","atípico extremo>", "Err Est Media", "IC(95%) Media Up", "IC(95%) Media Down"),"VALOR"=format(c(length(na.omit(x)), min(na.omit(x)), quantile(na.omit(x), prob=0.25), mean(na.omit(x)), median(na.omit(x)), sd(na.omit(x)), quantile(na.omit(x), prob=0.75), max(na.omit(x)), skewness(na.omit(x)), kurtosis(na.omit(x)), (2.5*quantile(na.omit(x),prob=0.25)-1.5*quantile(na.omit(x), prob=0.75)),(2.5*quantile(na.omit(x),prob=0.75)-1.5*quantile(na.omit(x), prob=0.25)),(4*quantile(na.omit(x),prob=0.25)-3*quantile(na.omit(x), prob=0.75)),(4*quantile(na.omit(x),prob=0.75)-3*quantile(na.omit(x), prob=0.25)), ((sd(na.omit(x))/sqrt(length(na.omit(x))))), (mean(na.omit(x))+1.96*(sd(na.omit(x))/sqrt(length(na.omit(x))))), (mean(na.omit(x))-1.96*((sd(na.omit(x))/sqrt(length(na.omit(x))))))), scientific = F))}
+#FUNCIÓN PARA ESTADÍSTICAS DESCRIPTIVAS PARA VARIABLES CONTINUAS
+
+descriptivas2<-function(Continua,Categorías){
+  x1=aggregate.data.frame(Continua, by=list(Categorías), FUN=function(x){length(na.omit(x))})
+  names(x1)=c("Categoría","Obs")
+  x2=aggregate.data.frame(Continua, by=list(Categorías), FUN=function(x){min(na.omit(x))})
+  names(x2)=c("Categoría","Mínimo")
+  x3=aggregate.data.frame(Continua, by=list(Categorías), FUN=function(x){quantile(na.omit(x), prob =0.25)})
+  names(x3)=c("Categoría","1er Q")
+  x4=aggregate.data.frame(Continua, by=list(Categorías), FUN=function(x){median(na.omit(x))})
+  names(x4)=c("Categoría","Mediana")
+  x5=aggregate.data.frame(Continua, by=list(Categorías), FUN=function(x){mean(na.omit(x))})
+  names(x5)=c("Categoría","Media")
+  x6=aggregate.data.frame(Continua, by=list(Categorías), FUN=function(x){quantile(na.omit(x), prob =0.75)})
+  names(x6)=c("Categoría","3er Q")
+  x7=aggregate.data.frame(Continua, by=list(Categorías), FUN=function(x){max(na.omit(x))})
+  names(x7)=c("Categoría","Máximo")
+  x8=aggregate.data.frame(Continua, by=list(Categorías), FUN=function(x){sd(na.omit(x))})
+  names(x8)=c("Categoría","Desv Est")
+  x9=aggregate.data.frame(Continua, by=list(Categorías), FUN=function(x){skewness(na.omit(x))})
+  names(x9)=c("Categoría","Asimetría")
+  x10=aggregate.data.frame(Continua, by=list(Categorías), FUN=function(x){kurtosis(na.omit(x))})
+  names(x10)=c("Categoría","Curtosis")
+  cbind(x1,x2,x3,x4,x5,x6,x7,x8,x9,x10)[,-seq(3,19,2)]
+}
+#FUNCIÓN PARA ESTADÍSTICAS DESCRIPTIVAS PARA VARIABLES CONTINUAS EN SUBMUESTRAS
+
+tabla_freq<- function(x,total=1,na="ifany"){
+  if (total==1) {
+    M=data.frame("Categoría"=table(x, useNA = na), "Rel"=prop.table(table(x,useNA = na)))[,-3]
+    names(M)=c("Categoría","Freq. Abs.","Freq. Rel.")
+    M$Categoría=as.character(M$Categoría)
+    M[nrow(M)+1,]=c("Total",sum(M$`Freq. Abs.`),sum(M$`Freq. Rel.`))
+    M$`Freq. Rel.`=as.numeric(M$`Freq. Rel.`)
+    M$`Freq. Abs.`=as.numeric(M$`Freq. Abs.`)
+    M
+  } else{
+    M=data.frame("Categoría"=table(x, useNA = na), "Rel"=prop.table(table(x,useNA = na)))[,-3]
+    names(M)=c("Categoría","Freq. Abs.","Freq. Rel.")
+    M
+  }
+}
+#FUNCIÓN PARA ESTADÍSTICAS DESCRIPTIVAS PARA VAR DISCRETAS
+
+tabla_freq2<-function(x,y,na="ifany",prop=0, suma=c("filas","col")){
+  if (prop==0) {
+    M=as.data.frame.matrix(table(x, y, useNA = na))
+    M$Categoría=row.names(M)
+    rownames(M)=NULL
+    M=M[,c(ncol(M),1:ncol(M)-1)]
+    M$Categoría=as.character(M$Categoría)
+    M[nrow(M)+1,]=c("Total",colSums(M[,2:ncol(M)]))
+    M[,2:ncol(M)]=sapply(M[,2:ncol(M)], as.numeric)
+    M$Total=rowSums(M[,2:ncol(M)])
+    M
+  } else if (prop==1 & suma=="filas") {
+    M=as.data.frame.matrix(table(x, y, useNA = na))
+    M$Categoría=row.names(M)
+    rownames(M)=NULL
+    M=M[,c(ncol(M),1:ncol(M)-1)]
+    M$Categoría=as.character(M$Categoría)
+    M[nrow(M)+1,]=c("Total",colSums(M[,2:ncol(M)]))
+    M[,2:ncol(M)]=sapply(M[,2:ncol(M)], as.numeric)
+    M$Total=rowSums(M[,2:ncol(M)])
+    for (i in 2:ncol(M)) {
+      M[,i]=M[,i]/M[,ncol(M)]
+    }
+    M
+  } else {
+    M=as.data.frame.matrix(table(x, y, useNA = na))
+    M$Categoría=row.names(M)
+    rownames(M)=NULL
+    M=M[,c(ncol(M),1:ncol(M)-1)]
+    M$Categoría=as.character(M$Categoría)
+    M[nrow(M)+1,]=c("Total",colSums(M[,2:ncol(M)]))
+    M[,2:ncol(M)]=sapply(M[,2:ncol(M)], as.numeric)
+    M$Total=rowSums(M[,2:ncol(M)])
+    for (i in 1:nrow(M)) {
+      M[i,2:ncol(M)]=M[i,2:ncol(M)]/M[nrow(M),2:ncol(M)]
+    }
+    M 
+  }
+}
+```
+
+## Carga de las correspondientes bases de datos
+
+A partir de los resultados expuestos en la Encuesta Nacional de Presupuestos de los Hogares 2016-2017 (ENPH) cuyo objetivo principal fue obtener información sobre las fuentes de los ingresos y la distribución de los gastos de los hogares colombianos a nivel nacional y teniendo en cuenta que los alcaldes quedaron inquietos por conocer el diagnóstico específico para su ciudad se procede a realizar un nuevo análisis especifico por ciudad, en este caso se abordarán los datos de Bogotá.
+
+Para desarrollar esta tarea se requiere de dos archivos:
+
+* Viviendas y Hogares
+
+* Características generales personales
+
+Además se decidió anexar los cógicos correspondientes a la Actividad Economica CIIU con el fín de poder explorar
+las distintas actividades económicas  de los encuestados. Para este nuevo estudio el grupo de estudio serán los registos del(de la) jefe(a) de hogar.
+
+```{r dataframes}
+Vivienda = read.csv2("Viviendas y hogares.csv", encoding = "UTF-8")
+personas = read.csv2("Caracteristicas generales personas.csv", encoding = "UTF-8")
+actividad = read.csv2("CIIU.csv",encoding = "UTF-8")
+```
+
+## Filtrado de variables
+Las variables de interés para este estudio son las siguientes:
+
+> Viviendas y hogares
+
+* DIRECTORIO: Identificador de encuesta
+* IT: Ingreso total del hogar
+* P8520S1: Acceso a energía eléctrica
+* P8520S5: Acceso a acueducto
+* P1646S3: Acceso a Internet
+* P6008: Tamaño del hogar (número de personas)
+* P8520S1A1: Estrato socioeconómico
+
+> Caracteristicas generales personas
+
+* DIRECTORIO: Identificador de encuesta
+* P6020: Género cabeza de hogar
+* P6040: Edad cabeza de hogar
+* P6080: Raza cabeza de hogar
+* P6210: Nivel educativo más alto alcanzado por cabeza de hogar
+* P6240: Actividad en la que la cabeza de hogar ocupó mayor parte del tiempo la semanada pasada a la encuesta
+* P6390S1: Actividad Económica CIIU
+
+**Base Viviendas y hogares de Bogotá**
+
+En primer lugar se verifica entre las ciudades que el Dominio igual a Bogotá no se encuentre escrito en otras variantes. Se evidencia una única denominación para Bogotá:
+```{r filtrado}
+
+kbl(tabla_freq(Vivienda$DOMINIO)) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+```
+Se filtra la base de datos "Viviendas y hogares" por las filas pertenecientes a Dominio igual a "BOGOTÁ"
+```{r filtro_bogotá}
+VBogota = Vivienda[Vivienda$DOMINIO == "BOGOTÁ",]
+
+kbl(head(VBogota,10)) %>%
+  kable_paper() %>%
+  scroll_box(width = "900px", height = "200px")
+```
+Se seleccionan las variables de interés:
+```{r columnas_bogotá}
+VBogota = VBogota[, c(
+"DIRECTORIO",
+"P8520S1",
+"P8520S5",
+"P1646S3",
+"P6008",
+"P8520S1A1",
+"IT"
+)]
+
+kbl(head(VBogota,5)) %>%
+  kable_paper() %>%
+  scroll_box(width = "900px", height = "200px")
+```
+
+
+
+**Base Características generales personas**
+Se filtra la base para encuestas hechas por jefe(a) de hogar:
+```{r}
+Jefe = personas[personas$P6050 == 1,]
+
+kbl(head(Jefe,10)) %>%
+  kable_paper() %>%
+  scroll_box(width = "900px", height = "200px")
+```
+Se selecciona las variables de interés:
+```{r personas_varibles }
+Jefe = Jefe[,c(
+  names(Jefe)[1],
+  "P6020",
+  "P6040",
+  "P6080",
+  "P6210",
+  "P6240",
+  "P6390S1"
+)]
+kbl(head(Jefe,10)) %>%
+  kable_paper() %>%
+  scroll_box(width = "900px", height = "200px")
+
+```
+## Renombre de variables
+
+Se renombran las variables de la base de datos **"Viviendas y hogares"**:
+```{r rename_viviendas}
+  VBogota= rename(VBogota,
+                Energia_Electrica = P8520S1,
+                Acueducto = P8520S5,
+                Internet = P1646S3,
+                Tam_hogar = P6008,
+                Estrato = P8520S1A1
+              )
+names(VBogota)
+
+```
+Se renombran las variables de la base de datos **"Caracteristicas generales personas"**
+```{r personas_rename}
+Jefe = rename(Jefe, 
+              DIRECTORIO = X.U.FEFF.DIRECTORIO,
+              Genero = P6020,
+              Edad = P6040,
+              Raza = P6080,
+              Nivel_Educativo = P6210,
+              Activ_sem_pasada = P6240,
+              Activ_economica = P6390S1
+)
+
+names(Jefe)
+```
+## Unión de las bases
+
+Se funcionan ambas bases mediante el identificador "DIRECTORIO".
+```{r mergin_bases}
+JefeBogota = merge(Jefe,VBogota, by = "DIRECTORIO")
+
+kbl(head(JefeBogota,10)) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+```
+**No se encuentran filas duplicadas**
+
+```{r duplicadas}
+
+kbl(tabla_freq(duplicated(JefeBogota))) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+```
+
+
+
+Por último se fusiona la tabla Actividad Economica CIIU:
+
+```{r actividad_eco,warning=FALSE,message=FALSE}
+#Cambio de posición variable Actividad Económica
+JefeBogota = JefeBogota [ , c(1,2,3,4,5,6,8,9,10,11,12,13,7)]
+library(plyr)
+
+JefeBogota$Activ_economica = mapvalues(JefeBogota$Activ_economica,actividad$X.U.FEFF.COD,actividad$OFICIO)
+
+kbl(head(JefeBogota,10)) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+```
+**La base de datos final se compone de `r dim(JefeBogota)[1]` encuestados de Bogotá que son cabeza de hogar y contamos con `r dim(JefeBogota)[2]` variables**
+
+
+## Exploración Valores NA
+
+```{r Valores NA,fig.align='center'}
+
+aggr(JefeBogota, numbers = T, prop = F, cex.axis = 0.5)
+
+```
+Se encontraron 1015 NA totales, 1008 en la actividad económica realizada por el cabeza de hogar y 7 en el estrato.
+
+Se procede a explorar los NA correspondientes a la variable Actividad Económica:
+
+```{r Actividad_Econo}
+
+kbl(head(JefeBogota[is.na(JefeBogota$Activ_economica),],5)) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+```
+Dada la variedad de perfiles correspondientes a la variable de Actividad Económica, se concluye que lo más probable es que se trate de encuestados que no especificaron su ocupación, esto corresponde a datos perdidos de tipo No Intencional y no es posible discernir a qué actividad económica se dedican basándonos en ninguna otra variable descriptiva. El porcentaje de NA en esta variable es de aproximadamente un 26% de los datos. Por todo lo anterior se decide reemplazar los NA por una nueva categoría "No Especifica".
+
+```{r Cambio_Noespecifica}
+
+JefeBogota[is.na(JefeBogota$Activ_economica),"Activ_economica"] = "No especifica"
+
+```
+Los datos nulos correspondientes al estrato socioeconómico al igual que los anteriores corresponden a una pérdida de datos no intencional del tipo Missing Not At Random, pues es muy probable que los individuos no quisieran revelar esta información. 
+
+Se exploran aquellos valores NA de la variable estrato y se encuentra que estos registros tienen en común la variable Energía electríca igual a que no cuenta con dicho servicio, se entiende con esto que aquellos encuestados sin servicio de energía electríca su estrato no se puede calificar. Por esta razón se decide conservar los 7 NA
+
+```{r na_estrato}
+
+kbl(JefeBogota[is.na(JefeBogota$Estrato),]) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+
+kbl(tabla_freq(JefeBogota$Energia_Electrica,0)) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+```
+
+
+```{r borrado_NA,fig.align='center'}
+
+aggr(JefeBogota, numbers = T, prop = F, cex.axis = 0.5)
+
+```
+
+## Formato de variables
+
+**Tipo de variables**
+
+```{r Tipo_Variable, echo=FALSE}
+variables = data.frame("VARIABLE" = c("GÉNERO","EDAD","RAZA","NIVEL EDUCATIVO", "ACTIVIDAD SEMANA PASADA", "ENERGÍA ELÉCTRICA", "ACUEDUCTO", "INTERNET","TAMAÑO DEL HOGAR","ESTRATO","INGRESO TOTAL","ACTIVIDAD ECONÓMICA","NIVELINGRESO","LOG","RANGOEDAD"), "TIPO" = c("CUALITATIVA NOMINAL", "CUANTITATIVA DISCRETA", "CUALITATIVA NOMINAL", "CUALITATIVA ORDINAL", "CUALITATIVA NOMINAL", "CUALITATIVA NOMINAL", "CUALITATIVA NOMINAL", "CUALITATIVA NOMINAL", "CUANTITATIVA DISCRETA", "CUALITATIVA ORDINAL", "CUANTITATIVA CONTINUA", "CUALITATIVA NOMINAL","CUALITATIVA ORDINAL","CUANTITATIVA CONTINUA","CUALITATIVA ORDINAL"))
+
+kbl(variables) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+```
+**Conversión de la variables GÉNERO a Factor**
+
+En primer lugar se verifica el formato de cada variable:
+
+```{r Desc_Vars}
+str(JefeBogota)
+
+```
+La edad, el ingreso total y la actividad económica no requieren transformación, pues ya están en su tipo de variable indicado.
+
+**Formato para la variable GÉNERO**
+
+```{r Formato_Edad}
+
+JefeBogota$Genero = factor(JefeBogota$Genero, levels = c(1,2), labels = c("Hombre", "Mujer"))
+
+kbl(tabla_freq(JefeBogota$Genero)) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+```
+**Formato para la variable RAZA**
+
+No se enceuntran observaciones para las categorías "Gitano" y "Raizal del archipiélago de San Andrés y Providencia",
+
+```{r Formato_Raza}
+
+JefeBogota$Raza = factor(JefeBogota$Raza, levels = c(1,4,5,6), labels = c("Indígena", "Palenquero", "Negro, Mulato, Afrocolombiano o Afrodescendiente", "Ninguna de las anteriores"))
+
+kbl(tabla_freq(JefeBogota$Raza)) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+```
+**Formato para la variable NIVEL EDUCATIVO**
+```{r Formato_NivelEdu}
+
+JefeBogota$Nivel_Educativo = factor(JefeBogota$Nivel_Educativo, levels = c(1,2,3,4,5,6,9), labels = c("Ninguno", "Preescolar", "Básica Primaria", "Básica Secundaria", "Media", "Superior o Universitaria", "No sabe/No informa"))
+
+kbl(tabla_freq(JefeBogota$Nivel_Educativo)) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+```
+**Formato para la variable ACTIVIDAD SEMANA PASADA**
+```{r Formato_ActSemPas}
+
+JefeBogota$Activ_sem_pasada = factor(JefeBogota$Activ_sem_pasada, levels = c(1:6), labels = c("Trabajando", "Buscando Trabajo", "Estudiando", "Oficios del Hogar", "Incapacitado Permanente Para Trabajar", "Otra Actividad"))
+
+kbl(tabla_freq(JefeBogota$Activ_sem_pasada)) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+```
+**Formato para la variable ENERGÍA ELÉCTRICA**
+```{r Formato_Electricidad}
+
+JefeBogota$Energia_Electrica = factor(JefeBogota$Energia_Electrica, levels = c(1, 2), labels = c("Si", "No"))
+
+kbl(tabla_freq(JefeBogota$Energia_Electrica)) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+```
+**Formato para la variable ACUEDUCTO**
+```{r Formato_Acueducto}
+
+JefeBogota$Acueducto = factor(JefeBogota$Acueducto, levels = c(1, 2), labels = c("Si", "No"))
+
+kbl(tabla_freq(JefeBogota$Acueducto)) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+```
+**Formato para la variable INTERNET**
+```{r Formato_Internet}
+
+JefeBogota$Internet = factor(JefeBogota$Internet, levels = c(1, 2), labels = c("Si", "No"))
+
+kbl(tabla_freq(JefeBogota$Internet)) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+```
+**Formato para la variable ESTRATO**
+```{r Formato_Estrato}
+
+JefeBogota$Estrato = factor(JefeBogota$Estrato, levels = c(0:6), labels = c(0:6))
+
+kbl(tabla_freq(JefeBogota$Estrato)) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+```
+## Transformación de Datos
+
+Para el periodo legal vigente 2016-2017 el SMMLV fue $689.455 y $737,717. A continuación se crea una nueva columna para segmentar el ingreso total a partir de la media entre el periodo 2016 y 2017: 
+
+```{r Nivel_Ingreso}
+
+
+SM = 0.5*(689455+737717)
+JefeBogota$NIVELINGRESO = ifelse(JefeBogota$IT <=SM,"Menos de 1 SMMLV",
+                                 ifelse(JefeBogota$IT > SM & JefeBogota$IT <= 2*SM, "De 1 a menos de 2 SMMLV",
+                                        ifelse(JefeBogota$IT > 2*SM & JefeBogota$IT <= 3*SM, "De 2 a menos de 3 SMMLV",
+                                               ifelse(JefeBogota$IT > 3*SM & JefeBogota$IT <= 4*SM,"De 3 a menos de 4 SMMLV",
+                                                      ifelse(JefeBogota$IT > 4*SM & JefeBogota$IT <= 5*SM, "De 4 a menos de 5 SMMLV",
+                                                             ifelse(JefeBogota$IT > 5*SM & JefeBogota$IT <= 6*SM, "De 5 a menos de 6 SMMLV",
+                                                                    "Más de 6 SMMLV"))))))
+
+kbl(tabla_freq(JefeBogota$NIVELINGRESO)) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+```
+
+**Creación de escala logarítmica para el Ingreso Total**
+
+En primer lugar se analiza la distribución de los Ingresos Totales de los Jefes de Hogar. Se encuentra con valor mínimo ingresos totales iguales a cero y como valores máximos ingresos iguales a 90 millones de pesos colombianos.
+
+```{r descrip_ingreso total}
+kbl(descriptivas2(JefeBogota$IT,JefeBogota$NIVELINGRESO)) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+```
+Se exploran aquellos ingresos totales iguales a cero, esto corresponde a `r dim(JefeBogota[JefeBogota$IT == 0,])[1]` filas: 
+
+**Aquellos valores con ingresos totales igual a cero se deciden convertir en valores NA, pues son valores invalidos ya que el ingreso total de cualquier hogar no es posible que sea igual a cero**
+
+
+```{r ingreso_cero}
+no_especifica_cero = JefeBogota[JefeBogota$Activ_economica!= "No especifica" & JefeBogota$IT == 0,]
+
+kbl(JefeBogota[is.na(JefeBogota$IT),]) %>%
+  kable_paper() %>%
+  scroll_box(width = "900px", height = "800px")
+
+```
+Sin embargo se encuentra que aquellos con ingresos totales igual a cero y que se encuentran trabajando son `r dim(no_especifica_cero)[1]`. Se considera que esto no está justificado pues los encuestados no quisieron dar sus ingresos totales.  
+
+```{r ingreso_cero_&_trabajo}
+
+kbl(no_especifica_cero) %>%
+  kable_paper() %>%
+  scroll_box(width = "900px", height = "800px")
+
+```
+
+
+```{r no_especifica_&_ingreso_cero,fig.align='center'}
+
+aggr(JefeBogota, numbers = T, prop = F, cex.axis = 0.5)
+
+
+```
+
+Se remplazan los valores nulos por la mediana correspondiente a sus grupos de actividad económica:
+
+```{r REPLACE_NA,echo=FALSE,fig.align='center'}
+
+#Se eliminas laspersonas de ingreso cero
+JefeBogota = JefeBogota[JefeBogota$IT!=0,]
+
+#Re-ajuste de la segmentación de los SMMLV
+SM = 0.5*(689455+737717)
+JefeBogota$NIVELINGRESO = ifelse(JefeBogota$IT <=SM,"Menos de 1 SMMLV",
+                                 ifelse(JefeBogota$IT > SM & JefeBogota$IT <= 2*SM, "De 1 a menos de 2 SMMLV",
+                                        ifelse(JefeBogota$IT > 2*SM & JefeBogota$IT <= 3*SM, "De 2 a menos de 3 SMMLV",
+                                               ifelse(JefeBogota$IT > 3*SM & JefeBogota$IT <= 4*SM,"De 3 a menos de 4 SMMLV",
+                                                      ifelse(JefeBogota$IT > 4*SM & JefeBogota$IT <= 5*SM, "De 4 a menos de 5 SMMLV",
+                                                             ifelse(JefeBogota$IT > 5*SM & JefeBogota$IT <= 6*SM, "De 5 a menos de 6 SMMLV",
+                                                                    "Más de 6 SMMLV"))))))
+
+#Creación de los factores ordinales
+JefeBogota$NIVELINGRESO = factor(JefeBogota$NIVELINGRESO,levels = c("Menos de 1 SMMLV",
+                                                                    "De 1 a menos de 2 SMMLV",
+                                                                    "De 2 a menos de 3 SMMLV",
+                                                                    "De 3 a menos de 4 SMMLV",
+                                                                    "De 4 a menos de 5 SMMLV",
+                                                                    "De 5 a menos de 6 SMMLV",
+                                                                    "Más de 6 SMMLV"))
+
+
+
+#Verificación de valores NA remplazados
+aggr(JefeBogota, numbers = T, prop = F, cex.axis = 0.5)
+
+
+```
+
+Ingresos
+
+```{r pastel_smmlv,fig.align='center'}
+nivel = tabla_freq(JefeBogota$NIVELINGRESO,0)
+
+ggplot(nivel, aes(x=2, y=`Freq. Rel.`, fill=Categoría)) +  # SE AGREGA EL X=2
+  geom_bar(stat="identity", width=1, color="black") +
+  coord_polar("y", start=0)+
+  labs(fill="Nivel")+  #PARA CAMBIAR EL TÍTULO DE LAS CATEGORÍAS (LEGEND TITLE)
+  theme_void()+
+  geom_text(aes(label = percent(`Freq. Rel.`)),position = position_stack(vjust = 0.5),color = "white", size=5)+
+  xlim(0.5, 2.5)  #Y SE AGREGA ESTO
+```
+
+**Distribución de los ingresos totales en escala logarítmica**
+
+```{r Escala_Log,fig.align='center',warning=FALSE,message=FALSE}
+
+#Por razones matematicas se omiten aquellos ingresos iguales a cero
+#JefeBogota = JefeBogota[JefeBogota$IT != 0,]
+JefeBogota$LOG = ifelse(JefeBogota$IT != 0,log(JefeBogota$IT),NA)
+
+options(scipen=999)
+ggplot(data=JefeBogota, aes(x=LOG))+
+  geom_histogram(fill="steelblue", color="black")
+
+```
+
+**Clasificación por rango de edades de los jefes de hogar**
+
+```{r Rango_Edad,fig.align='center'}
+
+JefeBogota$RANGOEDAD = cut(JefeBogota$Edad,breaks = seq(0,100,by=10))
+EDADES = tabla_freq(JefeBogota$RANGOEDAD,0)
+
+ggplot(EDADES, aes(x=Categoría, y=`Freq. Rel.`))+
+  geom_bar(stat = "identity",fill="steelblue", color="black")+
+  labs(x="Nivel",y="Frecuencia")+
+  scale_y_continuous(limits = c(0,0.4), breaks = seq(0,0.4,0.05), labels=percent)+
+  geom_text(aes(label=percent(`Freq. Rel.`)),vjust=-0.5, fontface = "bold", size=5)+
+  theme_base()
+
+```
+
+Distribución de las edades:
+
+La edad mínima de los jefes de hogar corresponde a 18 años y la máxima edad registrada es igual a 99 años. 
+
+```{r distri_edades}
+
+
+kbl(descriptivas(JefeBogota$Edad)) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+```
+Se encuentra un único dato atípico muy cerca del límite superior, el cual corresponde a 99 años.  Se decide conservar pues es un dato que no es extrañamente grande.
+
+```{r edad_boxplot}
+boxplot(JefeBogota$Edad)
+```
+
+
+**TOP 10 actividad económica de los Jefes de Hogar**
+
+Como se evidenció antes, apróximadamente el 26% de los encuestados por diferentes razones no especifican cuál es su actividad económica.
+```{r freq_activ_econo}
+freq_actividad_economica = tabla_freq(JefeBogota$Activ_economica,0)
+df = freq_actividad_economica[order(freq_actividad_economica$`Freq. Abs.`,decreasing = TRUE),]
+
+kbl(head(df,10)) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+
+```
+El total de encuestados jefes de hogar con ingresos totales igual a cero y sin actividad económica especifica es igual a `r dim(JefeBogota[JefeBogota$IT==0 & JefeBogota$Activ_economica=="No especifica",])[1]`
+
+**TOP actividad que más realizó la semana antes de la encuesta cada Jefe de Hogar**
+
+```{r act_sem_pasad}
+
+acti_sem_pasad = tabla_freq(JefeBogota$Activ_sem_pasada,0)
+df2 = acti_sem_pasad[order(acti_sem_pasad$`Freq. Abs.`,decreasing = TRUE),]
+
+kbl(df2) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+
+```
+**Top número de personas con las que vive el (la) Jefe(a) de familia:**
+
+```{r tamano_hogar}
+tam_hogar = tabla_freq(JefeBogota$Tam_hogar,0)
+df3 = tam_hogar[order(tam_hogar$`Freq. Abs.`,decreasing = TRUE),]
+
+kbl(df3) %>%
+  kable_paper(bootstrap_options = "hover", full_width = F)
+```
+
+**Estrato socioeconómico de los jefes de hogar:**
+
+```{r estrato}
+freq_estrato = tabla_freq(JefeBogota$Estrato,0) 
+
+
+ggplot(data=freq_estrato, aes(x=Categoría, y=`Freq. Rel.`)) +
+  geom_bar(stat="identity", fill="steelblue", color="black")+
+  geom_text(aes(label=percent(`Freq. Rel.`, accuracy = 0.01)), vjust=-0.3, size=3.5)+
+  theme_base()
+
+```
+
+**Distribución de Género por intervalos SMMLV**
+
+```{r genero_nivel_educ}
+ingreso_genero = as.data.frame(prop.table(table(JefeBogota$NIVELINGRESO,JefeBogota$Genero),1))
+
+ggplot(ingreso_genero, aes(x=Var1, y=Freq, fill=Var2))+
+  geom_bar(stat = "identity", color="black")+
+   labs(x="Nivel",y="Frecuencia relativa", fill="")+
+  scale_fill_brewer(palette = "Greens")+
+  scale_y_continuous(limits = c(0,1), breaks = seq(0,1,0.2), labels = percent)+
+  geom_text(aes(x=Var1, y=Freq, label=percent(Freq, accuracy = 0.1)), position= position_stack(vjust = 0.5), fontface = "bold", size=4)+
+  coord_flip()+
+  theme_base()
+
+```
+
+**Distribución de Género por nivel educativo cursado**
+
+```{r genero_nivel_educativo}
+
+educ_genero = as.data.frame(prop.table(table(JefeBogota$Nivel_Educativo,JefeBogota$Genero),1))
+
+ggplot(educ_genero, aes(x=Var1, y=Freq, fill=Var2))+
+  geom_bar(stat = "identity", color="black")+
+   labs(x="Nivel",y="Frecuencia relativa", fill="")+
+  scale_fill_brewer(palette = "Greens")+
+  scale_y_continuous(limits = c(0,1), breaks = seq(0,1,0.2), labels = percent)+
+  geom_text(aes(x=Var1, y=Freq, label=percent(Freq, accuracy = 0.1)), position= position_stack(vjust = 0.5), fontface = "bold", size=4)+
+  coord_flip()+
+  theme_base()
+
+```
+
+**Distribución Género por Raza:**
+
+```{r raza_genero}
+raza_genero = as.data.frame(prop.table(table(JefeBogota$Raza,JefeBogota$Genero),1))
+
+ggplot(raza_genero, aes(x=Var1, y=Freq, fill=Var2))+
+  geom_bar(stat = "identity", color="black")+
+   labs(x="Nivel",y="Frecuencia relativa", fill="")+
+  scale_fill_brewer(palette = "Greens")+
+  scale_y_continuous(limits = c(0,1), breaks = seq(0,1,0.2), labels = percent)+
+  geom_text(aes(x=Var1, y=Freq, label=percent(Freq, accuracy = 0.1)), position= position_stack(vjust = 0.5), fontface = "bold", size=4)+
+  coord_flip()+
+  theme_base()
+
+```
+
+
+La tabla final a usarce para cumplir con los objetivos del estudio se compone de 3918 observaciones y 15 variables:
+```{r}
+lista = names(JefeBogota)[2:dim(JefeBogota)[2]]
+JefeBogota = JefeBogota[,lista]
+
+kbl(head(JefeBogota,10)) %>%
+  kable_paper() %>%
+  scroll_box(width = "900px", height = "800px")
+
+```
+Exportamos el dataframe a formato CSV
+
+```{r csv}
+
+write.csv(JefeBogota,"C:/Users/jean-/Google Drive/ICESI/Noveno Semestre/Análisis exploratorio de datos/proyecto final/entrega final/base_final.csv",row.names = FALSE)
+
+```
+
+
